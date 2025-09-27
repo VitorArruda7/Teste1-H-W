@@ -37,7 +37,7 @@ export interface RunLogEntry {
   timestamp: Date;
   level: 'info' | 'warn' | 'error';
   message: string;
-  context?: Record<string, unknown>;
+  context?: unknown;
 }
 
 export type ProcessingRunStatus = 'IDLE' | 'RUNNING' | 'FAILED' | 'COMPLETED';
@@ -69,3 +69,4 @@ export interface ProcessingSummaryResponse {
   };
   totalDurationMs: number | null;
 }
+
