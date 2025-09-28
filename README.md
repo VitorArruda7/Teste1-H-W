@@ -1,4 +1,4 @@
-﻿# Plataforma de Processamento de Pedidos
+# Plataforma de Processamento de Pedidos
 
 Solucao para o caso de teste **NodeJS + Filas + NoSQL**. A aplicacao simula uma plataforma de e-commerce que gera 1 milhao de pedidos, processa-os em filas com prioridades diferentes, persiste as informacoes em MongoDB e expoe uma API e uma interface web para acompanhamento em tempo real.
 
@@ -13,13 +13,13 @@ Solucao para o caso de teste **NodeJS + Filas + NoSQL**. A aplicacao simula uma 
 
 ## Pre-requisitos
 
-| Componente | Versao sugerida | Observacoes |
-|------------|-----------------|-------------|
+| Componente | Versao sugerida | Observacoes                                   |
+| ---------- | --------------- | --------------------------------------------- |
 | Node.js    | >= 18 LTS       | Necessario para rodar scripts, build e testes |
-| npm        | >= 9            | Ou yarn/pnpm, conforme preferir |
-| Docker     | >= 24           | Utilizado para subir MongoDB e Redis |
+| npm        | >= 9            | Ou yarn/pnpm, conforme preferir               |
+| Docker     | >= 24           | Utilizado para subir MongoDB e Redis          |
 
->  Copie `.env.example` para `.env` e ajuste as variaveis conforme necessario. Para desenvolvimento local, ajuste `ORDER_COUNT` para um valor menor (ex.: 100_000) se quiser encurtar a execucao.
+> Copie `.env.example` para `.env` e ajuste as variaveis conforme necessario. Para desenvolvimento local, ajuste `ORDER_COUNT` para um valor menor (ex.: 100_000) se quiser encurtar a execucao.
 
 ## Inicializacao rapida
 
@@ -47,14 +47,15 @@ Solucao para o caso de teste **NodeJS + Filas + NoSQL**. A aplicacao simula uma 
 
 ## API
 
-| Metodo | Endpoint            | Descricao |
-|--------|---------------------|-----------|
-| `POST` | `/run`              | Inicia a geracao e processamento (202 Accepted). |
-| `POST` | `/reset`            | Limpa banco, fila e estado da execucao atual. |
-| `GET`  | `/pedidos`          | Retorna o resumo da ultima execucao (204 caso inexistente). |
-| `GET`  | `/api/logs/stream`  | Stream (SSE) com logs estruturados em tempo real. |
+| Metodo | Endpoint           | Descricao                                                   |
+| ------ | ------------------ | ----------------------------------------------------------- |
+| `POST` | `/run`             | Inicia a geracao e processamento (202 Accepted).            |
+| `POST` | `/reset`           | Limpa banco, fila e estado da execucao atual.               |
+| `GET`  | `/pedidos`         | Retorna o resumo da ultima execucao (204 caso inexistente). |
+| `GET`  | `/api/logs/stream` | Stream (SSE) com logs estruturados em tempo real.           |
 
 ### Exemplo de resposta `GET /pedidos`
+
 ```json
 {
   "runId": "66fd...",
@@ -120,16 +121,18 @@ A suite utiliza `jest` + `ts-jest`. Engloba utilitarios, gerador de pedidos com 
 
 ## Scripts uteis
 
-| Script         | Descricao |
-|----------------|-----------|
-| `npm run dev`  | Sobe API + interface com recarregamento automatico. |
-| `npm run build`| Compila TypeScript para `dist/`. |
-| `npm run start`| Executa versao compilada a partir de `dist/server.js`. |
-| `npm run lint` | Roda ESLint nos arquivos `.ts`. |
+| Script          | Descricao                                              |
+| --------------- | ------------------------------------------------------ |
+| `npm run dev`   | Sobe API + interface com recarregamento automatico.    |
+| `npm run build` | Compila TypeScript para `dist/`.                       |
+| `npm run start` | Executa versao compilada a partir de `dist/server.js`. |
+| `npm run lint`  | Roda ESLint nos arquivos `.ts`.                        |
 
 ## Monitoramento e Observabilidade
 
 - Logs estruturados via **Pino**, com streaming SSE (`/api/logs/stream`).
+- Endpoint `/metrics` exposto no formato Prometheus com duracoes, contadores e estado da fila.
+- Endpoint `/health` responde com status de Mongo e Redis para orquestradores.
 - Metricas de tempo registradas em banco (inicio, fim e duracao) por prioridade e total.
 - Interface apresenta os ultimos 400 logs, resumo consolidado e status da execucao.
 
@@ -142,3 +145,7 @@ O endpoint `POST /reset` limpa:
 - Filas e jobs BullMQ
 
 Esse recurso garante que o teste possa ser reexecutado sem interferencia de execucoes anteriores.
+
+## Integracao continua
+
+- Workflow GitHub Actions (`.github/workflows/ci.yml`) executa lint e testes a cada push ou pull request para `main`.

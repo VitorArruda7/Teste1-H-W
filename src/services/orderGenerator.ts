@@ -8,7 +8,8 @@ import { createTimer } from '../utils/perfTimer';
 
 const TIERS: OrderTier[] = ['BRONZE', 'PRATA', 'OURO', 'DIAMANTE'];
 
-const determinePriority = (tier: OrderTier): OrderPriority => (tier === 'DIAMANTE' ? 'VIP' : 'NORMAL');
+const determinePriority = (tier: OrderTier): OrderPriority =>
+  tier === 'DIAMANTE' ? 'VIP' : 'NORMAL';
 
 export interface GenerationResult {
   metrics: GenerationMetrics;
@@ -30,7 +31,7 @@ export const generateOrders = async (
 
   while (generated < totalOrders) {
     const batchCount = Math.min(batchSize, totalOrders - generated);
-    const documents: OrderDocument[] = new Array(batchCount);
+    const documents: OrderDocument[] = [];
 
     for (let index = 0; index < batchCount; index += 1) {
       const tier = faker.helpers.arrayElement(TIERS);
@@ -47,7 +48,7 @@ export const generateOrders = async (
         createdAt: new Date(),
       };
 
-      documents[index] = doc;
+      documents.push(doc);
       if (priority === 'VIP') {
         vipOrders += 1;
       } else {
@@ -79,4 +80,3 @@ export const generateOrders = async (
     },
   };
 };
-

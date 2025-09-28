@@ -1,4 +1,4 @@
-﻿import { ObjectId } from 'mongodb';
+import { ObjectId } from 'mongodb';
 
 import { config } from '../config/env';
 
@@ -13,6 +13,13 @@ import { GenerationResult, generateOrders } from './orderGenerator';
 import processingEvents from './eventBus';
 
 import { appendRunLog } from './logStream';
+import {
+  recordGenerationMetrics,
+  recordPriorityMetrics,
+  recordRunCompleted,
+  recordRunFailed,
+  recordRunStarted,
+} from './metrics';
 
 import {
   OrderPriority,
@@ -37,6 +44,9 @@ const activeRun: ActiveRunState = {
 
   promise: null,
 };
+
+const toError = (error: unknown): Error =>
+  error instanceof Error ? error : new Error(String(error));
 
 const createLogEntry = (
   level: RunLogEntry['level'],
@@ -293,212 +303,170 @@ const finalizePriorityMetrics = async (
 
 const executeRun = async (runId: ObjectId): Promise<void> => {
   const runsCollection = getRunsCollection();
-
   const { orderBatchSize, orderCount } = config;
-
   const runIdHex = runId.toHexString();
-
   const runTimer = createTimer();
-
   runTimer.start();
-
+  let currentPhase = 'initialization';
   try {
+    currentPhase = 'generation';
     const generationLog = createLogEntry('info', 'Iniciando geracao de pedidos', {
       totalOrders: orderCount,
-
       batchSize: orderBatchSize,
     });
-
     await appendRunLog(runId, generationLog);
-
     logger.info({ runId: runIdHex }, generationLog.message);
-
     const generationResult: GenerationResult = await generateOrders(
       runId,
       orderCount,
       orderBatchSize,
     );
-
+    recordGenerationMetrics(generationResult.metrics);
     await runsCollection.updateOne(
       { _id: runId },
-
       {
         $set: {
           generation: generationResult.metrics,
-
           updatedAt: new Date(),
         },
       },
     );
-
     await appendRunLog(
       runId,
-
       createLogEntry('info', 'Geracao de pedidos concluida', generationResult.metrics),
     );
-
     const processingTimer = createTimer();
-
     processingTimer.start();
-
     if (generationResult.metrics.vipOrders > 0) {
       await appendRunLog(
         runId,
-
         createLogEntry('info', 'Processamento VIP iniciado', {
           orders: generationResult.metrics.vipOrders,
         }),
       );
     }
-
+    currentPhase = 'vip_processing';
     const vipCompletionPromise = waitForPriorityCompletion(
       runIdHex,
-
       'VIP',
-
       generationResult.metrics.vipOrders,
     );
-
     const vipQueueStats = await enqueueOrdersForPriority(runId, 'VIP', orderBatchSize);
-
     await appendRunLog(
       runId,
-
       createLogEntry('info', 'Lotes VIP enfileirados', {
         orders: vipQueueStats.totalOrders,
-
         jobs: vipQueueStats.jobCount,
       }),
     );
-
     await vipCompletionPromise;
-
     const vipMetrics = await finalizePriorityMetrics(runId, 'VIP');
-
+    recordPriorityMetrics('VIP', {
+      processedCount: vipMetrics?.processedCount ?? generationResult.metrics.vipOrders,
+      durationMs: vipMetrics?.durationMs ?? null,
+    });
     await appendRunLog(
       runId,
-
       createLogEntry('info', 'Processamento VIP finalizado', {
         orders: generationResult.metrics.vipOrders,
-
         jobs: vipQueueStats.jobCount,
-
         durationMs: vipMetrics?.durationMs ?? null,
-
         startedAt: vipMetrics?.startedAt ?? null,
-
         completedAt: vipMetrics?.completedAt ?? null,
       }),
     );
-
     if (generationResult.metrics.normalOrders > 0) {
       await appendRunLog(
         runId,
-
         createLogEntry('info', 'Processamento NORMAL iniciado', {
           orders: generationResult.metrics.normalOrders,
         }),
       );
     }
-
+    currentPhase = 'normal_processing';
     const normalCompletionPromise = waitForPriorityCompletion(
       runIdHex,
-
       'NORMAL',
-
       generationResult.metrics.normalOrders,
     );
-
     const normalQueueStats = await enqueueOrdersForPriority(runId, 'NORMAL', orderBatchSize);
-
     await appendRunLog(
       runId,
-
       createLogEntry('info', 'Lotes NORMAL enfileirados', {
         orders: normalQueueStats.totalOrders,
-
         jobs: normalQueueStats.jobCount,
       }),
     );
-
     await normalCompletionPromise;
-
     const normalMetrics = await finalizePriorityMetrics(runId, 'NORMAL');
-
+    recordPriorityMetrics('NORMAL', {
+      processedCount: normalMetrics?.processedCount ?? generationResult.metrics.normalOrders,
+      durationMs: normalMetrics?.durationMs ?? null,
+    });
     await appendRunLog(
       runId,
-
       createLogEntry('info', 'Processamento NORMAL finalizado', {
         orders: generationResult.metrics.normalOrders,
-
         jobs: normalQueueStats.jobCount,
-
         durationMs: normalMetrics?.durationMs ?? null,
-
         startedAt: normalMetrics?.startedAt ?? null,
-
         completedAt: normalMetrics?.completedAt ?? null,
       }),
     );
-
     const processingDuration = processingTimer.stop();
-
     const totalDuration = runTimer.stop();
-
+    recordRunCompleted(totalDuration ?? null);
     const processingCompletedAt = new Date();
-
-    await runsCollection.updateOne(
-      { _id: runId },
-
-      [
-        {
-          $set: {
-            status: 'COMPLETED',
-
-            updatedAt: processingCompletedAt,
-
-            'processing.totalDurationMs': processingDuration ?? null,
-
-            totalDurationMs: totalDuration ?? null,
-          },
+    currentPhase = 'finalizing';
+    await runsCollection.updateOne({ _id: runId }, [
+      {
+        $set: {
+          status: 'COMPLETED',
+          updatedAt: processingCompletedAt,
+          'processing.totalDurationMs': processingDuration ?? null,
+          totalDurationMs: totalDuration ?? null,
         },
-      ],
-    );
-
+      },
+    ]);
     await appendRunLog(
       runId,
-
       createLogEntry('info', 'Execucao concluida com sucesso', {
         totalDurationMs: totalDuration,
-
         processingDurationMs: processingDuration,
       }),
     );
   } catch (error) {
-    const reason = error instanceof Error ? error.message : 'Erro desconhecido';
+    const totalDuration =
+      (() => {
+        try {
+          return runTimer.stop();
+        } catch {
+          return runTimer.getDuration();
+        }
+      })() ?? null;
+    recordRunFailed(totalDuration);
+    const failureError = toError(error);
     const failureLog = createLogEntry('error', 'Execucao falhou', {
-      reason,
+      reason: failureError.message,
+      stack: failureError.stack ?? null,
+      phase: currentPhase,
     });
-
     await appendRunLog(runId, failureLog);
-
     await runsCollection.updateOne(
       { _id: runId },
-
       {
         $set: {
           status: 'FAILED',
-
           updatedAt: new Date(),
-
-          failureReason: reason,
+          failureReason: failureError.message,
         },
       },
     );
-
-    logger.error({ runId: runId.toHexString(), err: error }, 'Pipeline execution failed');
-
-    throw error;
+    logger.error(
+      { runId: runId.toHexString(), err: failureError, phase: currentPhase },
+      'Pipeline execution failed',
+    );
+    throw failureError;
   }
 };
 
@@ -567,10 +535,13 @@ export const startProcessingPipeline = async (): Promise<{ runId: string }> => {
 
   activeRun.runId = insertedId;
 
+  recordRunStarted();
+
   const runPromise = executeRun(insertedId)
     .catch((error) => {
+      const err = toError(error);
       logger.error(
-        { runId: insertedId.toHexString(), err: error },
+        { runId: insertedId.toHexString(), err },
         'Pipeline concluded with errors',
       );
     })
@@ -646,4 +617,3 @@ export const resetProcessingState = async (): Promise<void> => {
 
   logger.info('Estado do processamento resetado');
 };
-

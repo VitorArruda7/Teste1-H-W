@@ -1,4 +1,4 @@
-﻿import dotenv from 'dotenv';
+import dotenv from 'dotenv';
 
 dotenv.config();
 
@@ -27,6 +27,7 @@ export const config = {
   orderCount: numberFromEnv(process.env.ORDER_COUNT, 1_000_000),
   orderBatchSize: numberFromEnv(process.env.ORDER_BATCH_SIZE, 10_000),
   concurrency: numberFromEnv(process.env.CONCURRENCY, 10),
+  dataRetentionHours: numberFromEnv(process.env.DATA_RETENTION_HOURS, 48),
 };
 
 export const isProduction = config.nodeEnv === 'production';

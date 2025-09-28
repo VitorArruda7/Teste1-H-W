@@ -1,4 +1,4 @@
-﻿import { Collection, Db, MongoClient } from 'mongodb';
+import { Collection, Db, MongoClient } from 'mongodb';
 import { config } from '../config/env';
 import logger from '../config/logger';
 import { OrderDocument, ProcessingRunDocument } from '../types/order';
@@ -16,7 +16,10 @@ export const connectMongo = async (): Promise<Db> => {
   await mongoClient.connect();
   database = mongoClient.db();
   logger.info({ mongoUri: config.mongoUri }, 'Connected to MongoDB');
-  await database.collection<OrderDocument>('orders').createIndexes([
+  const ordersCollection = database.collection<OrderDocument>('orders');
+  const runsCollection = database.collection<ProcessingRunDocument>('processing_runs');
+
+  await ordersCollection.createIndexes([
     {
       key: { priority: 1 },
       name: 'idx_priority',
@@ -29,12 +32,22 @@ export const connectMongo = async (): Promise<Db> => {
       key: { processedAt: 1 },
       name: 'idx_processedAt',
     },
+    {
+      key: { createdAt: 1 },
+      name: 'idx_createdAt_ttl',
+      expireAfterSeconds: Math.max(config.dataRetentionHours, 1) * 3600,
+    },
   ]);
 
-  await database.collection<ProcessingRunDocument>('processing_runs').createIndexes([
+  await runsCollection.createIndexes([
     {
       key: { createdAt: -1 },
       name: 'idx_createdAt_desc',
+    },
+    {
+      key: { updatedAt: 1 },
+      name: 'idx_updatedAt_ttl',
+      expireAfterSeconds: Math.max(config.dataRetentionHours, 1) * 3600,
     },
   ]);
 
